@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eigenfish Visualizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f4f0e8;
+        }
+        canvas {
+            border: 1px solid #000;
+            background-color: white;
+        }
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Eigenfish Visualizer</h1>
+    <canvas id="eigenfishCanvas" width="600" height="600"></canvas>
+    <button id="generateButton">Generate New Eigenfish</button>
+
+    <script>
+        class Eigenfish {
+            constructor(matrix, indicesOfTs) {
+                this.matrix = math.matrix(matrix);
+                this.indicesOfTs = indicesOfTs;
+                this.mdim = matrix.length;
+                this.nT = indicesOfTs[0].length;
+            }
+
+            eigvalsRandomTsRect(nTs, r) {
+                const eigenvalues = [];
+                for (let i = 0; i < nTs; i++) {
+                    const ts = Array(this.nT).fill().map(() => math.random(-r, r));
+                    const updatedMatrix = this.matrix.clone();
+                    this.indicesOfTs[0].forEach((row, index) => {
+                        updatedMatrix.set([row, this.indicesOfTs[1][index]], ts[index]);
+                    });
+                    try {
+                        const eigvals = math.eigs(updatedMatrix).values.toArray();
+                        eigenvalues.push(...eigvals);
+                    } catch (error) {
+                        console.error("Error calculating eigenvalues:", error);
+                    }
+                }
+                return eigenvalues;
+            }
+        }
+
+        function generateEigenfishMatrix(size) {
+            const population = [0, math.complex(0, -1), math.complex(0, 1), 1, 0.5];
+            return Array(size).fill().map(() => 
+                Array(size).fill().map(() => population[Math.floor(Math.random() * population.length)])
+            );
+        }
+
+        function plotEigenvalues(canvas, eigenvalues) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#383b3e';
+
+            const maxAbsValue = Math.max(...eigenvalues.map(z => Math.max(Math.abs(z.re), Math.abs(z.im))));
+            const scale = (width / 2 - 20) / maxAbsValue;
+
+            eigenvalues.forEach(z => {
+                const x = width / 2 + z.re * scale;
+                const y = height / 2 - z.im * scale;
+                ctx.beginPath();
+                ctx.arc(x, y, 0.5, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+
+            // Draw axes
+            ctx.strokeStyle = '#999';
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.moveTo(width / 2, 0);
+            ctx.lineTo(width / 2, height);
+            ctx.stroke();
+        }
+
+        function generateEigenfish() {
+            const mdim = 6;
+            const r = 20;
+            const nMatrix = 50000;
+
+            const matrix = generateEigenfishMatrix(mdim);
+            const varIndices = [
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)],
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)]
+            ];
+
+            const eigenfish = new Eigenfish(matrix, varIndices);
+            const eigenvalues = eigenfish.eigvalsRandomTsRect(nMatrix, r);
+
+            const canvas = document.getElementById('eigenfishCanvas');
+            plotEigenvalues(canvas, eigenvalues);
+        }
+
+        document.getElementById('generateButton').addEventListener('click', generateEigenfish);
+
+        // Initial generation
+        generateEigenfish();
+    </script>
+</body>
+</html>

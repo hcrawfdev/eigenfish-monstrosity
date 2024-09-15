@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eigenfish Visualization with TensorFlow.js</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f4f0e8;
+        }
+        #controls {
+            margin: 20px 0;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+        #loading, #error {
+            margin-top: 10px;
+        }
+        #error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>Eigenfish Visualization with TensorFlow.js</h1>
+    <div id="controls">
+        <button id="randomMatrices">Random Matrices</button>
+        <button id="torusCase">Torus Case</button>
+    </div>
+    <canvas id="eigenfishCanvas" width="800" height="800"></canvas>
+    <div id="loading">Calculating...</div>
+    <div id="error"></div>
+
+    <script>
+        "use strict";
+
+        const canvas = document.getElementById('eigenfishCanvas');
+        const ctx = canvas.getContext('2d');
+        const loadingIndicator = document.getElementById('loading');
+        const errorDisplay = document.getElementById('error');
+
+        class Eigenfish {
+            constructor(mdim, indicesOfTs) {
+                this.mdim = mdim;
+                this.indicesOfTs = indicesOfTs;
+                this.nT = indicesOfTs[0].length;
+            }
+
+            async eigvalsGenerator(nTs, isTorusCase) {
+                const batchSize = 100;
+                const population = isTorusCase
+                    ? [0, 0, tf.complex(0, -1), tf.complex(0, 1), 0.2]
+                    : [0, tf.complex(0, -1), tf.complex(0, 1), 1, 0.5];
+
+                const totalBatches = Math.ceil(nTs / batchSize);
+
+                for (let batch = 0; batch < totalBatches; batch++) {
+                    const matrices = tf.tidy(() => {
+                        const matrixBatch = [];
+                        for (let i = 0; i < batchSize; i++) {
+                            const matrix = tf.tensor2d(Array(this.mdim * this.mdim).fill(0).map(() => 
+                                population[Math.floor(Math.random() * population.length)]
+                            ), [this.mdim, this.mdim]);
+                            
+                            // Apply random values to specified indices
+                            const ts = isTorusCase
+                                ? tf.complex(
+                                    tf.randomUniform([this.nT], -1, 1),
+                                    tf.randomUniform([this.nT], -1, 1)
+                                )
+                                : tf.randomUniform([this.nT], -1, 1);
+                            
+                            const updatedMatrix = tf.scatter(
+                                matrix,
+                                tf.tensor2d(this.indicesOfTs, [this.nT, 2]),
+                                ts
+                            );
+                            
+                            matrixBatch.push(updatedMatrix);
+                        }
+                        return matrixBatch;
+                    });
+
+                    for (const matrix of matrices) {
+                        try {
+                            const eigenvalues = tf.tidy(() => {
+                                const { imagPart, realPart } = tf.linalg.eig(matrix);
+                                return tf.complex(realPart, imagPart);
+                            });
+                            
+                            const eigenvaluesArray = await eigenvalues.array();
+                            //yield eigenvaluesArray;
+                            
+                            tf.dispose(eigenvalues);
+                        } catch (error) {
+                            console.warn("Error calculating eigenvalues:", error);
+                        }
+                    }
+                    
+                    tf.dispose(matrices);
+                }
+            }
+        }
+
+        function plotEigenvalues(eigenvalues, color = '#383b3e') {
+            ctx.fillStyle = color;
+
+            const scale = Math.min(canvas.width, canvas.height) / 4;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            eigenvalues.forEach(ev => {
+                const x = centerX + ev.re * scale;
+                const y = centerY - ev.im * scale;
+                ctx.fillRect(x, y, 1, 1);
+            });
+        }
+
+        async function generateAndPlot(isTorusCase) {
+            loadingIndicator.style.display = 'block';
+            errorDisplay.textContent = '';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const mdim = isTorusCase ? 6 : 5;
+            const varIndices = [
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)],
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)]
+            ];
+
+            const eigenfish = new Eigenfish(mdim, varIndices);
+            const generator = eigenfish.eigvalsGenerator(50000, isTorusCase);
+
+            let totalEigenvalues = 0;
+
+            try {
+                for await (const eigenvalues of generator) {
+                    plotEigenvalues(eigenvalues);
+                    totalEigenvalues += eigenvalues.length;
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            } catch (error) {
+                console.error("Error during eigenvalue generation:", error);
+                errorDisplay.textContent = "An error occurred during calculation. Please try again.";
+            }
+
+            loadingIndicator.style.display = 'none';
+            console.log(`Total eigenvalues plotted: ${totalEigenvalues}`);
+        }
+
+        document.getElementById('randomMatrices').addEventListener('click', () => generateAndPlot(false));
+        document.getElementById('torusCase').addEventListener('click', () => generateAndPlot(true));
+
+        // Initial plot
+        generateAndPlot(false);
+    </script>
+</body>
+</html>

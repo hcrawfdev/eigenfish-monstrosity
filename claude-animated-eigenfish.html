@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eigenfish Animator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+        }
+        canvas {
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="eigenfishCanvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/10.0.0/math.js"></script>
+    <script>
+        const canvas = document.getElementById('eigenfishCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size
+        canvas.width = 800;
+        canvas.height = 800;
+
+        function dotProduct(a, b) {
+            return a.reduce((sum, val, i) => sum + math.multiply(math.conj(val), b[i]), 0);
+        }
+
+        function vectorSubtract(a, b) {
+            return a.map((val, i) => math.subtract(val, b[i]));
+        }
+
+        function vectorScale(v, s) {
+            return v.map(val => math.multiply(val, s));
+        }
+
+        function matrixMultiply(a, b) {
+            return a.map(row => 
+                b[0].map((_, j) => 
+                    row.reduce((sum, val, k) => math.add(sum, math.multiply(val, b[k][j])), 0)
+                )
+            );
+        }
+
+        function norm(v) {
+            return Math.sqrt(v.reduce((sum, val) => sum + Math.pow(math.abs(val), 2), 0));
+        }
+
+        function gramSchmidt(matrix) {
+            const q = [];
+            const r = Array(matrix.length).fill().map(() => Array(matrix[0].length).fill(0));
+
+            for (let i = 0; i < matrix.length; i++) {
+                let v = matrix[i].slice();
+                for (let j = 0; j < i; j++) {
+                    const dot = dotProduct(q[j], v);
+                    r[j][i] = dot;
+                    v = vectorSubtract(v, vectorScale(q[j], dot));
+                }
+                r[i][i] = norm(v);
+                q[i] = vectorScale(v, 1 / r[i][i]);
+            }
+
+            return [q, r];
+        }
+
+        function qrAlgorithm(matrix, iterations = 30) {
+            let a = matrix;
+            for (let i = 0; i < iterations; i++) {
+                const [q, r] = gramSchmidt(a);
+                a = matrixMultiply(r, q);
+            }
+            return a.map(row => row[row.length - 1]);
+        }
+
+        class Eigenfish {
+            constructor(matrix, indicesOfTs) {
+                this.matrix = matrix;
+                this.indicesOfTs = indicesOfTs;
+                this.mdim = matrix.length;
+                this.nT = indicesOfTs[0].length;
+            }
+
+            eigvalsRandomTsTorus(nTs, radius = 1.0) {
+                let eigenvalues = [];
+                for (let i = 0; i < nTs; i++) {
+                    let ts = Array(this.nT).fill().map(() => math.multiply(radius, math.exp(math.complex(0, math.random(0, 2 * Math.PI)))));
+                    let matrix = this.matrix.map(row => [...row]);
+                    for (let j = 0; j < this.nT; j++) {
+                        matrix[this.indicesOfTs[0][j]][this.indicesOfTs[1][j]] = ts[j];
+                    }
+                    eigenvalues = eigenvalues.concat(qrAlgorithm(matrix));
+                }
+                return eigenvalues;
+            }
+        }
+
+        class EigenfishAnimator {
+            constructor(mdim = 6, nMatrix = 500, morphSteps = 60, morphDuration = 2) {
+                this.mdim = mdim;
+                this.nMatrix = nMatrix;
+                this.morphSteps = morphSteps;
+                this.morphDuration = morphDuration;
+                this.currentEigenfish = this.generateRandomEigenfish();
+                this.nextEigenfish = this.generateRandomEigenfish();
+                this.transitionProgress = 0;
+                this.frameCount = 0;
+            }
+
+            generateRandomEigenfish() {
+                const matrix = Array(this.mdim).fill().map(() => 
+                    Array(this.mdim).fill().map(() => 
+                        [0, math.complex(0, -1), math.complex(0, 1), 0.2][Math.floor(Math.random() * 4)]
+                    )
+                );
+                const varIndices = [
+                    [Math.floor(Math.random() * this.mdim)],
+                    [Math.floor(Math.random() * this.mdim)]
+                ];
+                return new Eigenfish(matrix, varIndices);
+            }
+
+            interpolateMatrices(progress) {
+                return this.currentEigenfish.matrix.map((row, i) =>
+                    row.map((val, j) => 
+                        math.add(
+                            math.multiply(1 - progress, val),
+                            math.multiply(progress, this.nextEigenfish.matrix[i][j])
+                        )
+                    )
+                );
+            }
+
+            update() {
+                this.frameCount++;
+                this.transitionProgress = (this.frameCount % this.morphSteps) / this.morphSteps;
+
+                if (this.frameCount % this.morphSteps === 0) {
+                    this.currentEigenfish = this.nextEigenfish;
+                    this.nextEigenfish = this.generateRandomEigenfish();
+                }
+
+                const interpolatedMatrix = this.interpolateMatrices(this.transitionProgress);
+                const interpolatedEigenfish = new Eigenfish(interpolatedMatrix, this.currentEigenfish.indicesOfTs);
+                const eigenvalues = interpolatedEigenfish.eigvalsRandomTsTorus(this.nMatrix);
+
+                this.draw(eigenvalues);
+            }
+
+            draw(eigenvalues) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                for (let eigenvalue of eigenvalues) {
+                    const x = (math.re(eigenvalue) + 2) * canvas.width / 4;
+                    const y = (-math.im(eigenvalue) + 2) * canvas.height / 4;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+
+            animate() {
+                const interval = this.morphDuration * 1000 / this.morphSteps;
+                setInterval(() => this.update(), interval);
+            }
+        }
+
+        const animator = new EigenfishAnimator();
+        animator.animate();
+    </script>
+</body>
+</html>

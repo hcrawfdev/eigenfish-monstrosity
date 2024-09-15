@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eigenfish Visualization</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/13.1.1/math.js" integrity="sha512-fMI/ndUubOcpzblrAaOFszYIE2iDKua+Cxg9dZp3cAkhsRWEHHbKtFCElHEQ50viX502yj7nFEEcxq2SOTNrIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"> </script>
+        <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f4f0e8;
+        }
+        #controls {
+            margin: 20px 0;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>Eigenfish Visualization</h1>
+    <div id="controls">
+        <button id="randomMatrices">Random Matrices</button>
+        <button id="torusCase">Torus Case</button>
+    </div>
+    <canvas id="eigenfishCanvas" width="800" height="800"></canvas>
+
+    <script src="eigen_computation.js"></script>
+    <script defer>
+        const canvas = document.getElementById('eigenfishCanvas');
+        const ctx = canvas.getContext('2d');
+        //const math = mathjs;
+  const eigenModulePromise = createModule();
+
+        // Function to compute eigenvalues using WebAssembly
+        async function computeEigenvaluesWasm(matrix) {
+            const Module = await eigenModulePromise;
+            // Call the C++ function
+            const eigs = Module.computeEigenvalues(matrix);
+            return eigs;
+        }
+
+
+        class Eigenfish {
+            constructor(matrix, indicesOfTs) {
+                this.matrix = matrix;
+                this.indicesOfTs = indicesOfTs;
+                this.mdim = matrix.length;
+                this.nT = indicesOfTs[0].length;
+            }
+
+   
+   async eigvalsRandomTsRect(nTs, r) {
+                console.log('timeit began: ' + new Date()); 
+                console.log('nts: ', nTs);
+                console.log('r', r);
+                const eigenvalues = [];
+                const ts = new Array(this.nT);
+                for (let i = 0; i < nTs; i++) {
+                    for (let j = 0; j < this.nT; j++) {
+                        ts[j] = Math.random() * 2 * r - r;
+                        this.matrix[this.indicesOfTs[0][j]][this.indicesOfTs[1][j]] = ts[j];
+                    }
+                    console.log('beginning eigenvalues computation');
+                    const eigs = await computeEigenvaluesWasm(this.matrix);
+                    eigenvalues.push(...eigs);
+                }
+                console.log('timeit ended: ' + new Date());
+                return eigenvalues;
+            }
+
+
+            eigvalsRandomTsTorus(nTs) {
+                const eigenvalues = [];
+                for (let i = 0; i < nTs; i++) {
+                    const ts = Array(this.nT).fill().map(() => tf.complex(Math.cos(Math.random() * 2 * Math.PI), Math.sin(Math.random() * 2 * Math.PI)));
+                    for (let j = 0; j < this.nT; j++) {
+                        this.matrix[this.indicesOfTs[0][j]][this.indicesOfTs[1][j]] = ts[j];
+                    }
+                    const eigvals = math.eigs(this.matrix).values;
+                    eigenvalues.push(...eigvals);
+                }
+                return eigenvalues;
+            }
+        }
+
+        function plotEigenvalues(eigenvalues, color = '#383b3e') {
+            console.log('plot begin');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = color;
+            const scale = Math.min(canvas.width, canvas.height) / 4;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            console.log('eigenvalues length: ' + eigenvalues.length);
+            eigenvalues.forEach(ev => {
+                const x = centerX + ev.re * scale;
+                const y = centerY - ev.im * scale;
+                ctx.beginPath();
+                ctx.arc(x, y, 1, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+
+        function randomMatrices() {
+            const mdim = 5;
+            const population = [0, math.complex(0, -1), math.complex(0, 1), 1, 0.5];
+            const r = 20;
+            const nMatrix = 10000;
+
+            console.log('matrix beginning');
+            const matrix = Array(mdim).fill().map(() => Array(mdim).fill().map(() => population[Math.floor(Math.random() * population.length)]));
+            console.log('matrix end');
+            const varIndices = [
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)],
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)]
+            ];
+            console.log('fish begin');
+            const eigenfish = new Eigenfish(matrix, varIndices);
+            console.log('fish end');
+            const eigenvalues = eigenfish.eigvalsRandomTsRect(nMatrix, r);
+            console.log('rect end');
+            plotEigenvalues(eigenvalues);
+            console.log('plot end');
+        }
+
+        function torusCase() {
+            const mdim = 6;
+            const population = [0, 0, math.complex(0, -1), math.complex(0, 1), 0.2];
+            const nMatrix = 10000;
+            const matrix = Array(mdim).fill().map(() => Array(mdim).fill().map(() => population[Math.floor(Math.random() * population.length)]));
+            const varIndices = [
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)],
+                [Math.floor(Math.random() * mdim), Math.floor(Math.random() * mdim)]
+            ];
+            const eigenfish = new Eigenfish(matrix, varIndices);
+            const eigenvalues = eigenfish.eigvalsRandomTsTorus(nMatrix);
+            plotEigenvalues(eigenvalues);
+        }
+
+        document.getElementById('randomMatrices').addEventListener('click', randomMatrices);
+        document.getElementById('torusCase').addEventListener('click', torusCase);
+
+        // Initial plot
+        randomMatrices();
+    </script>
+</body>
+</html>

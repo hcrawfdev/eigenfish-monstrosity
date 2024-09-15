@@ -1,0 +1,235 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Eigenvalue-Powered Shape Transition</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #202020;
+        }
+        canvas {
+            display: block;
+            background-color: #ffffff;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // Get the canvas and context
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Resize the canvas to fill the window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Define the initial shape (a square)
+        const originalShape = [
+            {x: -100, y: -100},
+            {x: 100, y: -100},
+            {x: 100, y: 100},
+            {x: -100, y: 100}
+        ];
+
+        // Function to apply a transformation matrix to the shape
+        function transformShape(shape, matrix) {
+            return shape.map(point => {
+                return {
+                    x: matrix.a * point.x + matrix.c * point.y,
+                    y: matrix.b * point.x + matrix.d * point.y
+                };
+            });
+        }
+
+        // Function to draw the shape
+        function drawShape(shape, color) {
+            ctx.beginPath();
+            ctx.moveTo(shape[0].x, shape[0].y);
+            for (let i = 1; i < shape.length; i++) {
+                ctx.lineTo(shape[i].x, shape[i].y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = '#000000';
+            ctx.stroke();
+        }
+
+        // Function to interpolate between two values
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        // Function to interpolate between two matrices
+        function interpolateMatrix(m1, m2, t) {
+            return {
+                a: lerp(m1.a, m2.a, t),
+                b: lerp(m1.b, m2.b, t),
+                c: lerp(m1.c, m2.c, t),
+                d: lerp(m1.d, m2.d, t)
+            };
+        }
+
+        // Define transformation types separately for clarity
+        const transformations = [
+            {
+                // First transformation: scaling
+                type: 'scaling',
+                eigenvalues: [1.5, 0.5], // scaling factors
+                eigenvectors: [
+                    {x: 1, y: 0}, // x-axis
+                    {x: 0, y: 1}  // y-axis
+                ]
+            },
+            {
+                // Second transformation: rotation
+                type: 'rotation',
+                angle: Math.PI / 4 // 45 degrees in radians
+            },
+            {
+                // Third transformation: shearing
+                type: 'shear',
+                shearFactor: 0.5 // shearing along the x-axis
+            },
+            {
+                // Fourth transformation: scaling with different eigenvalues
+                type: 'scaling',
+                eigenvalues: [0.8, 1.2],
+                eigenvectors: [
+                    {x: 1, y: 1}, // 45 degrees
+                    {x: -1, y: 1} // 135 degrees
+                ]
+            },
+            {
+                // Fifth transformation: rotation
+                type: 'rotation',
+                angle: -Math.PI / 6 // -30 degrees in radians
+            }
+        ];
+
+        // Function to create a transformation matrix from a transformation object
+        function createMatrix(transformation) {
+            if (transformation.type === 'scaling' && transformation.eigenvectors && transformation.eigenvectors.length === 2) {
+                // Diagonalizable scaling matrix
+                const [λ1, λ2] = transformation.eigenvalues;
+                const [v1, v2] = transformation.eigenvectors;
+
+                // Construct the matrix P from eigenvectors
+                const P = [
+                    [v1.x, v2.x],
+                    [v1.y, v2.y]
+                ];
+
+                // Construct the diagonal matrix D from eigenvalues
+                const D = [
+                    [λ1, 0],
+                    [0, λ2]
+                ];
+
+                // Compute P * D
+                const PD = [
+                    [P[0][0] * D[0][0] + P[0][1] * D[1][0],
+                     P[0][0] * D[0][1] + P[0][1] * D[1][1]],
+                    [P[1][0] * D[0][0] + P[1][1] * D[1][0],
+                     P[1][0] * D[0][1] + P[1][1] * D[1][1]]
+                ];
+
+                // Compute P * D * P^{-1}
+                const detP = P[0][0] * P[1][1] - P[0][1] * P[1][0];
+                if (detP === 0) {
+                    console.warn("Transformation matrix P is not invertible.");
+                    return {a:1, b:0, c:0, d:1};
+                }
+                const P_inv = [
+                    [ P[1][1] / detP, -P[0][1] / detP],
+                    [-P[1][0] / detP,  P[0][0] / detP]
+                ];
+
+                // Compute PD * P_inv
+                const matrix = {
+                    a: PD[0][0] * P_inv[0][0] + PD[0][1] * P_inv[1][0],
+                    b: PD[0][0] * P_inv[0][1] + PD[0][1] * P_inv[1][1],
+                    c: PD[1][0] * P_inv[0][0] + PD[1][1] * P_inv[1][0],
+                    d: PD[1][0] * P_inv[0][1] + PD[1][1] * P_inv[1][1]
+                };
+
+                return matrix;
+            } else if (transformation.type === 'rotation') {
+                // Rotation matrix
+                const angle = transformation.angle; // in radians
+                return {
+                    a: Math.cos(angle),
+                    b: Math.sin(angle),
+                    c: -Math.sin(angle),
+                    d: Math.cos(angle)
+                };
+            } else if (transformation.type === 'shear') {
+                // Shear matrix (shearing along the x-axis)
+                const shear = transformation.shearFactor;
+                return {
+                    a: 1,
+                    b: 0,
+                    c: shear,
+                    d: 1
+                };
+            } else {
+                // Default to identity matrix
+                return {a:1, b:0, c:0, d:1};
+            }
+        }
+
+        // Precompute transformation matrices
+        const transformationMatrices = transformations.map(t => createMatrix(t));
+
+        // Animation parameters
+        let currentTransform = 0;
+        let nextTransform = 1;
+        let progress = 0;
+        const transitionSpeed = 0.005; // Adjust for speed of transition
+
+        // Animation loop
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Interpolate between currentTransform and nextTransform
+            const fromMatrix = transformationMatrices[currentTransform];
+            const toMatrix = transformationMatrices[nextTransform];
+            const matrix = interpolateMatrix(fromMatrix, toMatrix, progress);
+
+            // Apply the transformation to the original shape
+            const transformedShape = transformShape(originalShape, matrix);
+
+            // Center the shape on the canvas
+            const centeredShape = transformedShape.map(point => ({
+                x: point.x + canvas.width / 2,
+                y: point.y + canvas.height / 2
+            }));
+
+            // Draw the transformed shape
+            drawShape(centeredShape, '#FF5722');
+
+            // Update progress
+            progress += transitionSpeed;
+            if (progress >= 1) {
+                progress = 0;
+                currentTransform = nextTransform;
+                nextTransform = (nextTransform + 1) % transformationMatrices.length;
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start the animation
+        animate();
+    </script>
+</body>
+</html>
